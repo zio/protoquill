@@ -6,7 +6,7 @@ import io.getquill.context.sql.idiom.SqlIdiom
 import io.getquill.context.{ContextVerbStream, ExecutionInfo, ProtoContextSecundus}
 import zio.Exit.{Failure, Success}
 import zio.stream.ZStream
-import zio.{FiberRef, Runtime, UIO, Unsafe, ZEnvironment, ZIO}
+import zio.{FiberRef, Runtime, Scope, UIO, Unsafe, ZEnvironment, ZIO}
 
 import java.sql.{Array as _, *}
 import javax.sql.DataSource
@@ -23,11 +23,11 @@ import zio.ZIO.blocking
  * as a resource dependency which can be provided later (see `ZioJdbc` for helper methods
  * that assist in doing this).
  *
- * The resource dependency itself is just a `Has[Connection]`. Since this is frequently used
- * The type `QIO[T]` i.e. Quill-IO has been defined as an alias for `ZIO[Has[Connection], SQLException, T]`.
+ * The resource dependency itself is just a `Connection`. Since this is frequently used
+ * The type `QIO[T]` i.e. Quill-IO has been defined as an alias for `ZIO[Connection, SQLException, T]`.
  *
  * Since in most JDBC use-cases, a connection-pool datasource i.e. Hikari is used it would actually
- * be much more useful to interact with `ZIO[Has[DataSource], SQLException, T]`.
+ * be much more useful to interact with `ZIO[DataSource, SQLException, T]`.
  * The extension method `.onDataSource` in `io.getquill.context.ZioJdbc.QuillZioExt` will perform this conversion
  * (for even more brevity use `onDS` which is an alias for this method).
  * {{
@@ -41,7 +41,7 @@ import zio.ZIO.blocking
  *   Runtime.default.unsafeRun(MyZioContext.run(query[Person]).ContextTranslateProtoprovideLayer(zioDS))
  * }}
  *
- * Note however that the one exception to these cases are the `prepare` methods where a `ZIO[Has[Connection], SQLException, PreparedStatement]`
+ * Note however that the one exception to these cases are the `prepare` methods where a `ZIO[Connection, SQLException, PreparedStatement]`
  * is being returned. In those situations the acquire-action-release pattern does not make any sense because the `PrepareStatement`
  * is only held open while it's host-connection exists.
  */
@@ -162,12 +162,12 @@ abstract class ZioJdbcContext[+Dialect <: SqlIdiom, +Naming <: NamingStrategy] e
    * Execute instructions in a transaction. For example, to add a Person row to the database and return
    * the contents of the Person table immediately after that:
    * {{{
-   *   val a = run(query[Person].insert(Person(...)): ZIO[Has[DataSource], SQLException, Long]
-   *   val b = run(query[Person]): ZIO[Has[DataSource], SQLException, Person]
-   *   transaction(a *> b): ZIO[Has[DataSource], SQLException, Person]
+   *   val a = run(query[Person].insert(Person(...)): ZIO[DataSource, SQLException, Long]
+   *   val b = run(query[Person]): ZIO[DataSource, SQLException, Person]
+   *   transaction(a *> b): ZIO[DataSource, SQLException, Person]
    * }}}
    *
-   * The order of operations run in the case that a new connection needs to be aquired are as follows:
+   * The order of operations run in the case that a new connection needs to be acquired are as follows:
    * <pre>
    *   getDS from env,
    *   acquire-connection,
@@ -179,14 +179,14 @@ abstract class ZioJdbcContext[+Dialect <: SqlIdiom, +Naming <: NamingStrategy] e
    *   release-conn
    * </pre>
    */
-  def transaction[R <: DataSource, A](op: ZIO[R, Throwable, A]): ZIO[R, Throwable, A] = {
+  def transaction[R <: DataSource, E, A](op: ZIO[R, E, A]): ZIO[R, E | SQLException, A] = {
     blocking(currentConnection.get.flatMap {
       // We can just return the op in the case that there is already a connection set on the fiber ref
       // because the op is execute___ which will lookup the connection from the fiber ref via onConnection/onConnectionStream
       // This will typically happen for nested transactions e.g. transaction(transaction(a *> b) *> c)
-      case Some(connection) => op
+      case Some(_) => op
       case None =>
-        val connection = for {
+        val connection: ZIO[Scope with DataSource, SQLException, Unit] = (for {
           env <- ZIO.service[DataSource]
           connection <- scopedBestEffort(attemptBlocking(env.getConnection))
           // Get the current value of auto-commit
@@ -197,7 +197,7 @@ abstract class ZioJdbcContext[+Dialect <: SqlIdiom, +Naming <: NamingStrategy] e
             attemptBlocking(connection.setAutoCommit(prevAutoCommit)).orDie
           }
           _ <- ZIO.acquireRelease(currentConnection.set(Some(connection))) { _ =>
-            // Note. We are failing the fiber if auto-commit reset fails. For some circumstances this may be too aggresive.
+            // Note. We are failing the fiber if auto-commit reset fails. For some circumstances this may be too aggressive.
             // If the connection pool e.g. Hikari resets this property for a recycled connection anyway doing it here
             // might not be necessary
             currentConnection.set(None)
@@ -207,7 +207,7 @@ abstract class ZioJdbcContext[+Dialect <: SqlIdiom, +Naming <: NamingStrategy] e
             case Success(_)     => blocking(ZIO.succeed(connection.commit()))
             case Failure(cause) => blocking(ZIO.succeed(connection.rollback()))
           }
-        } yield ()
+        } yield ()).refineToOrDie[SQLException]
 
         ZIO.scoped(connection *> op)
     })

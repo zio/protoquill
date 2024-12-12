@@ -111,14 +111,16 @@ abstract class ZioJdbcUnderlyingContext[+Dialect <: SqlIdiom, +Naming <: NamingS
    * Note that for ZIO 2.0 since the env is covariant, R can be a subtype of connection because if there are other with-clauses
    * they can be generalized to Something <: Connection. E.g. `Connection with OtherStuff` generalizes to `Something <: Connection`.
    */
-  private[getquill] def withoutAutoCommit[R <: Connection, A, E <: Throwable: ClassTag](f: ZIO[R, E, A]): ZIO[R, E, A] = {
+  private[getquill] def withoutAutoCommit[R <: Connection, A, E](f: ZIO[R, E, A]): ZIO[R, E | SQLException, A] = {
     for {
       conn <- ZIO.service[Connection]
       autoCommitPrev = conn.getAutoCommit
-      r <- ZIO.acquireReleaseWith(sqlEffect(conn))(conn => ZIO.succeed(conn.setAutoCommit(autoCommitPrev))) { conn =>
-        sqlEffect(conn.setAutoCommit(false)).flatMap(_ => f)
-      }.refineToOrDie[E]
-    } yield r
+      result <- ZIO.acquireReleaseWith(sqlEffect(conn))(conn => ZIO.succeed(conn.setAutoCommit(autoCommitPrev))) { conn =>
+        // type has to be explicitly defined
+        val innerResult: ZIO[R, E | SQLException, A] = sqlEffect(conn.setAutoCommit(false)) *> f
+        innerResult
+      }
+    } yield result
   }
 
   private[getquill] def streamWithoutAutoCommit[A](f: ZStream[Connection, Throwable, A]): ZStream[Connection, Throwable, A] = {
@@ -131,20 +133,20 @@ abstract class ZioJdbcUnderlyingContext[+Dialect <: SqlIdiom, +Naming <: NamingS
     } yield r
   }
 
-  def transaction[R <: Connection, A](f: ZIO[R, Throwable, A]): ZIO[R, Throwable, A] = {
+  def transaction[R <: Connection, E, A](f: ZIO[R, E, A]): ZIO[R, E | SQLException, A] = {
     ZIO.environment[R].flatMap(env =>
-      blocking(withoutAutoCommit(
+      blocking(withoutAutoCommit {
         f.onExit {
           case Success(_) =>
             ZIO.succeed(env.get[Connection].commit())
           case Failure(cause) =>
-            ZIO.succeed(env.get[Connection].rollback()).foldCauseZIO(
+            sqlEffect(env.get[Connection].rollback()).foldCauseZIO(
               // NOTE: cause.flatMap(Cause.die) means wrap up the throwable failures into die failures, can only do if E param is Throwable (can also do .orDie at the end)
-              rollbackFailCause => ZIO.failCause(cause.flatMap(Cause.die(_, StackTrace.none)) ++ rollbackFailCause),
-              _ => ZIO.failCause(cause.flatMap(Cause.die(_, StackTrace.none))) // or ZIO.halt(cause).orDie
+              rollbackFailCause => ZIO.failCause(cause.flatMap(e => Cause.fail(e, StackTrace.none)).stripFailures ++ rollbackFailCause.stripFailures),
+              _ => ZIO.failCause(cause.flatMap(e => Cause.fail[E](e, StackTrace.none).stripFailures)) // or ZIO.halt(cause).orDie
             )
         }.provideEnvironment(env)
-      )))
+      }))
   }
 
   def probingDataSource: Option[DataSource] = None

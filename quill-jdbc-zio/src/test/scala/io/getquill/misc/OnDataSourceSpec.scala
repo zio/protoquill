@@ -7,6 +7,7 @@ import zio.{ ZIO, ZLayer }
 import io.getquill.context.ZioJdbc._
 import io.getquill._
 
+import java.sql.Connection
 import javax.sql.DataSource
 
 class OnDataSourceSpec extends PeopleZioProxySpec {
@@ -56,6 +57,15 @@ class OnDataSourceSpec extends PeopleZioProxySpec {
 
       people mustEqual peopleEntries.filter(p => p.name == "Alex")
     }
+    "should keep existing errors" in {
+      // This is how you import the encoders/decoders of `underlying` context without importing things that will conflict
+      // i.e. the quote and run methods
+      import testContext.underlying.{prepare => _, run => _, _}
+      import java.sql.SQLException
+
+      val zioThatCanFail: ZIO[Connection, String, Nothing] = ZIO.service[Connection] *> ZIO.fail("Custom Error")
+      "val result: ZIO[DataSource, String | SQLException, List[Person]] = zioThatCanFail.onDataSource" should compile
+    }
   }
 
   "implicitDS on underlying context" - {
@@ -98,6 +108,20 @@ class OnDataSourceSpec extends PeopleZioProxySpec {
         ds <- ZIO.service[DataSource]
         svc <- ZIO.attempt(Service(ds))
       } yield (svc.people)).runSyncUnsafe() mustEqual peopleEntries.filter(p => p.name == "Alex")
+    }
+    "should keep existing errors" in {
+      // This is how you import the encoders/decoders of `underlying` context without importing things that will conflict
+      // i.e. the quote and run methods
+      import testContext.underlying.{prepare => _, run => _, _}
+      import java.sql.SQLException
+
+      (for {
+        ds <- ZIO.service[DataSource]
+        given Implicit[DataSource] = Implicit(ds)
+      } yield {
+        val zioThatCanFail: ZIO[DataSource, String, Nothing] = ZIO.service[DataSource] *> ZIO.fail("Custom Error")
+        "val result: ZIO[DataSource, String | SQLException, List[Person]] = zioThatCanFail.implicitDS" should compile
+      }).runSyncUnsafe()
     }
   }
 }

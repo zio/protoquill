@@ -74,63 +74,59 @@ object ZioJdbc {
       }
   }
 
-  implicit class QuillZioDataSourceExt[T](qzio: ZIO[DataSource, Throwable, T]) {
+  implicit class QuillZioDataSourceExt[T, E](qzio: ZIO[DataSource, E, T]) {
 
-    import io.getquill.context.qzio.ImplicitSyntax._
+    import io.getquill.context.qzio.ImplicitSyntax.*
 
-    def implicitDS(implicit implicitEnv: Implicit[DataSource]): ZIO[Any, SQLException, T] =
-      (for {
+    def implicitDS(implicit implicitEnv: Implicit[DataSource]): ZIO[Any, E, T] =
+      for {
         q <- qzio.provideEnvironment(ZEnvironment(implicitEnv.env))
-      } yield q).refineToOrDie[SQLException]
+      } yield q
   }
 
-  implicit class QuillZioSomeDataSourceExt[T, R](qzio: ZIO[DataSource with R, Throwable, T])(implicit tag: Tag[R]) {
+  implicit class QuillZioSomeDataSourceExt[T, E, R](qzio: ZIO[DataSource with R, E, T])(implicit tag: Tag[R]) {
 
-    import io.getquill.context.qzio.ImplicitSyntax._
+    import io.getquill.context.qzio.ImplicitSyntax.*
 
-    def implicitSomeDS(implicit implicitEnv: Implicit[DataSource]): ZIO[R, SQLException, T] =
-      (for {
+    def implicitSomeDS(implicit implicitEnv: Implicit[DataSource]): ZIO[R, E, T] =
+      for {
         r <- ZIO.environment[R]
         q <- qzio
           .provideSomeLayer[DataSource](ZLayer.succeedEnvironment(r))
           .provideEnvironment(ZEnvironment(implicitEnv.env))
-      } yield q).refineToOrDie[SQLException]
+      } yield q
   }
 
-  implicit class QuillZioExtPlain[T](qzio: ZIO[Connection, Throwable, T]) {
+  implicit class QuillZioExtPlain[E, T](qzio: ZIO[Connection, E, T]) {
 
-    import io.getquill.context.qzio.ImplicitSyntax._
+    import io.getquill.context.qzio.ImplicitSyntax.*
 
-    def onDataSource: ZIO[DataSource, SQLException, T] =
-      (for {
-        q <- qzio.provideSomeLayer(Quill.Connection.acquireScoped)
-      } yield q).refineToOrDie[SQLException]
+    def onDataSource: ZIO[DataSource, E | SQLException, T] = qzio.provideSomeLayer(Quill.Connection.acquireScoped)
 
-    def implicitDS(implicit implicitEnv: Implicit[DataSource]): ZIO[Any, SQLException, T] =
-      (for {
-        q <- qzio
-          .provideSomeLayer(Quill.Connection.acquireScoped)
-          .provideEnvironment(ZEnvironment(implicitEnv.env))
-      } yield q).refineToOrDie[SQLException]
+    def implicitDS(implicit implicitEnv: Implicit[DataSource]): ZIO[Any, E | SQLException, T] =
+      onDataSource.provideEnvironment(ZEnvironment(implicitEnv.env))
   }
 
-  implicit class QuillZioExt[T, R](qzio: ZIO[Connection with R, Throwable, T])(implicit tag: Tag[R]) {
+  implicit class QuillZioExt[T, E, R](qzio: ZIO[Connection with R, E, T])(implicit tag: Tag[R]) {
     /**
      * Change `Connection` of a QIO to `DataSource with Closeable` by providing a `DataSourceLayer.live` instance
      * which will grab a connection from the data-source, perform the QIO operation, and the immediately release the connection.
      * This is used for data-sources that have pooled connections e.g. Hikari.
      * {{{
      *   def ds: DataSource with Closeable = ...
-     *   run(query[Person]).onDataSource.provide(Has(ds))
+     *   run(query[Person]).onDataSource.provide(ds)
      * }}}
      */
-    def onSomeDataSource: ZIO[DataSource with R, SQLException, T] =
-      (for {
+    def onSomeDataSource: ZIO[DataSource with R, E | SQLException, T] =
+      for {
         r <- ZIO.environment[R]
-        q <- qzio
-          .provideSomeLayer[Connection](ZLayer.succeedEnvironment(r))
-          .provideSomeLayer(Quill.Connection.acquireScoped)
-      } yield q).refineToOrDie[SQLException]
+        // This needs to be typed explicitly
+        z: ZIO[DataSource, E | SQLException, T] =
+          qzio
+            .provideSomeLayer[Connection](ZLayer.succeedEnvironment(r))
+            .provideSomeLayer(Quill.Connection.acquireScoped)
+        q <- z
+      } yield q
   }
 
   /**

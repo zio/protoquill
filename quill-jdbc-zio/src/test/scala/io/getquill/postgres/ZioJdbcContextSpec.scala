@@ -76,5 +76,9 @@ class ZioJdbcContextSpec extends ZioSpec {
         "select * from Person where name=? and age > ?", (ps, session) => (List("Sarah", 127), ps)
       ).runSyncUnsafe() mustEqual List("127", "'Sarah'")
     }
+    "keep existing errors" in {
+      val zioThatCanFail: ZIO[Any, String, Nothing] = ZIO.fail("Custom Error")
+      "val result: ZIO[Any, String | SQLException, List[TestEntity]] = testContext.transaction(zioThatCanFail *> testContext.run(qr1))" must compile
+    }
   }
 }

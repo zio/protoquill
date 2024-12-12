@@ -75,6 +75,12 @@ class ZioJdbcUnderlyingContextSpec extends ZioProxySpec {
         r <- testContext.underlying.run(qr1)
       } yield r).onDataSource.runSyncUnsafe().map(_.i) mustEqual List(33)
     }
+    "keep existing errors" in {
+      import java.sql.{Connection, SQLException}
+
+      val zioThatCanFail: ZIO[Any, String, Nothing] = ZIO.fail("Custom Error")
+      "val result: ZIO[Connection, String | SQLException, List[TestEntity]] = testContext.underlying.transaction(zioThatCanFail *> testContext.underlying.run(qr1))" must compile
+    }
     // "prepare" in {
     //   testContext.underlying.prepareParams(
     //     "select * from Person where name=? and age > ?", (ps, session) => (List("Sarah", 127), ps)

@@ -111,17 +111,17 @@ trait QuillBaseContext[+Dialect <: SqlIdiom, +Naming <: NamingStrategy] extends 
    * Execute instructions in a transaction. For example, to add a Person row to the database and return
    * the contents of the Person table immediately after that:
    * {{{
-   *   val a = run(query[Person].insert(Person(...)): ZIO[Has[DataSource], SQLException, Long]
-   *   val b = run(query[Person]): ZIO[Has[DataSource], SQLException, Person]
-   *   transaction(a *> b): ZIO[Has[DataSource], SQLException, Person]
+   *   val a = run(query[Person].insert(Person(...)): ZIO[DataSource, SQLException, Long]
+   *   val b = run(query[Person]): ZIO[DataSource, SQLException, Person]
+   *   transaction(a *> b): ZIO[DataSource, SQLException, Person]
    * }}}
    */
-  def transaction[R, A](op: ZIO[R, Throwable, A]): ZIO[R, Throwable, A] =
+  def transaction[R, E ,A](op: ZIO[R, E, A]): ZIO[R, E | SQLException, A] =
     dsDelegate.transaction(op).provideSomeEnvironment[R]((env: ZEnvironment[R]) => env.add[DataSource](ds: DataSource))
 
-  private def onDS[T](qio: ZIO[DataSource, SQLException, T]): ZIO[Any, SQLException, T] =
+  private def onDS[T, E](qio: ZIO[DataSource, E, T]): ZIO[Any, E, T] =
     qio.provideEnvironment(ZEnvironment(ds))
 
-  private def onDSStream[T](qstream: ZStream[DataSource, SQLException, T]): ZStream[Any, SQLException, T] =
+  private def onDSStream[T, E](qstream: ZStream[DataSource, E, T]): ZStream[Any, E, T] =
     qstream.provideEnvironment(ZEnvironment(ds))
 }
