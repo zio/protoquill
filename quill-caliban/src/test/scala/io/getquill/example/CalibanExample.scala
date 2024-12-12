@@ -42,8 +42,8 @@ object Dao {
     quote {
       query[PersonT].leftJoin(query[AddressT]).on((p, a) => p.id == a.ownerId)
         .map((p, a) => PersonAddress(p.id, p.first, p.last, p.age, a.map(_.street)))
-        .filterColumns(columns)
         .filterByKeys(filters)
+        .filterColumns(columns)
         .take(10)
     }
   inline def plan(inline columns: List[String], inline filters: Map[String, String]) =

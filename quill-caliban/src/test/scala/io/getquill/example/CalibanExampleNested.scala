@@ -40,8 +40,8 @@ object DaoNested {
     quote {
       query[PersonT].leftJoin(query[AddressT]).on((p, a) => p.id == a.ownerId)
         .map((p, a) => PersonAddressNested(p.id, p.name, p.age, a.map(_.street)))
-        .filterColumns(columns)
         .filterByKeys(filters)
+        .filterColumns(columns)
         .take(10)
     }
   inline def plan(inline columns: List[String], inline filters: Map[String, String]) =
