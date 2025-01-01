@@ -171,7 +171,7 @@ lazy val `quill-caliban` =
     .settings(
       Test / fork := true,
       libraryDependencies ++= Seq(
-        "com.github.ghostdogpr" %% "caliban-quick" % "2.7.2",
+        "com.github.ghostdogpr" %% "caliban-quick" % "2.9.1",
         // Adding this to main dependencies would force users to use logback-classic for SLF4j unless the specifically remove it
         // seems to be safer to just exclude & add a commented about need for a SLF4j implementation in Docs.
         "ch.qos.logback" % "logback-classic" % "1.5.12" % Test,
