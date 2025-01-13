@@ -132,15 +132,15 @@ object QuoteMacro {
     val (serializeQuats, serializeAst) = SummonSerializationBehaviors()
     given TranspileConfig = SummonTranspileConfig()
 
-    val rawAst = parser(body)
+    val (rawAst, parserLifts) = parser(body)
     val (noDynamicsAst, dynamicQuotes) = DynamicsExtractor(rawAst)
     val ast = SimplifyFilterTrue(BetaReduction(noDynamicsAst))
 
     val reifiedAst = Lifter.WithBehavior(serializeQuats, serializeAst)(ast)
     val u = Unlifter(reifiedAst)
 
-    // Extract runtime quotes and lifts
-    val (lifts, pluckedUnquotes) = ExtractLifts(bodyRaw)
+    val (lifts, pluckedUnquotes) = (parserLifts.lifts, parserLifts.pluckableUnquotes)
+
     '{ Quoted[T](${ reifiedAst }, ${ Expr.ofList(lifts) }, ${ Expr.ofList(pluckedUnquotes ++ dynamicQuotes) }) }
   }
 }

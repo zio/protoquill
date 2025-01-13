@@ -198,6 +198,14 @@ case class UpdateMeta[T](val entity: Quoted[T], uid: String) extends QuotationLo
 
 case class QueryMeta[T, R](val entity: Quoted[Query[T] => Query[R]], uid: String, extract: R => T) extends QuotationLot[Query[T] => Query[R]](uid)
 
+// When you query[Person].insertValue(lift(p)) that will be seen by the parser as:
+//   Apply(Select(expr: EntityQuery(Person), insertValue), CaseClassLift(...))
+//   because `insertValue` is a macro that resolves to the CaseClassLift(...)
+// Where CaseClassLift(...) is something like:
+//   CaseClassLift(Quoted(ast: CaseClass(Person)("name" -> ScalarTag(UUID_A), "age" -> ScalarTag(UUID_B)), lifts: List(EagerPlanter(UUID_A, p.name), EagerPlanter(UUID_B, p.age))))
+// In situations where you have nested case classes it will look something liek this:
+//   for: Person(Name(first, last), age)
+//   CaseClassLift(QUoted(ast: CaseClass(Person)("name" -> CaseClass(Name)(first -> ScalaTag(UUID_A), last -> ScalarTag(UUID_B)), age -> ScalarTag(UUID_C)), List(EagerPlanter(UUID_A, p.name.first), EagerPlanter(UUID_B, p.name.last), EagerPlanter(UUID_C, p.age))))
 // TODO Rename to EntityLift
 // Equivalent to CaseClassValueLift
 case class CaseClassLift[T](val entity: Quoted[T], uid: String) extends QuotationLot[T](uid)

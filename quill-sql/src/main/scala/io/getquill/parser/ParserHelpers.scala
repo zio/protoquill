@@ -97,10 +97,10 @@ object ParserHelpers {
         }
       } // end CheckTypes
 
-      def OrFail(expr: Expr[_])(using Quotes, History) =
+      def OrFail(expr: Expr[_])(using Quotes, History, LiftsAccum) =
         unapply(expr).getOrElse { failParse(expr, classOf[Assignment]) }
 
-      def unapply(expr: Expr[_])(using Quotes, History): Option[Assignment] =
+      def unapply(expr: Expr[_])(using Quotes, History, LiftsAccum): Option[Assignment] =
         UntypeExpr(expr) match {
           case Components(ident, identTpe, prop, value) =>
             Some(Assignment(cleanIdent(ident, identTpe), rootParse(prop), rootParse(value)))
@@ -108,9 +108,9 @@ object ParserHelpers {
         }
 
       object Double {
-        def OrFail(expr: Expr[_])(using Quotes, History) =
+        def OrFail(expr: Expr[_])(using Quotes, History, LiftsAccum) =
           unapply(expr).getOrElse { failParse(expr, classOf[AssignmentDual]) }
-        def unapply(expr: Expr[_])(using Quotes, History): Option[AssignmentDual] =
+        def unapply(expr: Expr[_])(using Quotes, History, LiftsAccum): Option[AssignmentDual] =
           UntypeExpr(expr) match {
             case TwoComponents(ident1, identTpe1, ident2, identTpe2, prop, value) =>
               val i1 = cleanIdent(ident1, identTpe1)
@@ -136,7 +136,7 @@ object ParserHelpers {
     // Parses (e:Entity) => e.foo (or e.foo.bar etc...)
     object LambdaToProperty {
       object OrFail {
-        def apply(expr: Expr[_])(using History): Property =
+        def apply(expr: Expr[_])(using History, LiftsAccum): Property =
           unapply(expr) match {
             case Some(value) => value
             case None =>
@@ -144,7 +144,7 @@ object ParserHelpers {
           }
       }
 
-      def unapply(expr: Expr[_])(using History): Option[Property] =
+      def unapply(expr: Expr[_])(using History, LiftsAccum): Option[Property] =
         expr match {
           case Lambda1(id, tpe, body) =>
             val bodyProperty = AnyProperty.OrFail(body)
@@ -156,7 +156,7 @@ object ParserHelpers {
 
     object AnyProperty {
       object OrFail {
-        def apply(expr: Expr[_])(using History): Property =
+        def apply(expr: Expr[_])(using History, LiftsAccum): Property =
           unapply(expr) match {
             case Some(value) => value
             case None =>
@@ -164,7 +164,7 @@ object ParserHelpers {
           }
       }
 
-      def unapply(expr: Expr[_])(using History): Option[Property] =
+      def unapply(expr: Expr[_])(using History, LiftsAccum): Option[Property] =
         expr match {
           case Unseal(value @ Select(Seal(prefix), member)) =>
             val propertyAst = Property(rootParse(prefix), member)
@@ -245,7 +245,7 @@ object ParserHelpers {
      * is not macro specific so a good deal of it can be refactored out into the quill-sql-portable module.
      * Do equality checking on the database level with the same truth-table as idiomatic scala
      */
-    def equalityWithInnerTypechecksIdiomatic(using Quotes, History)(left: quotes.reflect.Term, right: quotes.reflect.Term)(equalityBehavior: EqualityBehavior) = {
+    def equalityWithInnerTypechecksIdiomatic(using Quotes, History, LiftsAccum)(left: quotes.reflect.Term, right: quotes.reflect.Term)(equalityBehavior: EqualityBehavior) = {
       import quotes.reflect.{Ident => TIdent, ValDef => TValDef, _}
       import io.getquill.ast.Implicits._
       val (leftIsOptional, rightIsOptional) = checkInnerTypes(left, right, ForbidInnerCompare)
@@ -271,7 +271,7 @@ object ParserHelpers {
      * (not used yet but will be used when support for 'extras' dsl functionality is added)
      * Do equality checking on the database level with the ansi-style truth table (i.e. always false if one side is null)
      */
-    def equalityWithInnerTypechecksAnsi(using Quotes, History)(left: quotes.reflect.Term, right: quotes.reflect.Term)(equalityBehavior: EqualityBehavior) = {
+    def equalityWithInnerTypechecksAnsi(using Quotes, History, LiftsAccum)(left: quotes.reflect.Term, right: quotes.reflect.Term)(equalityBehavior: EqualityBehavior) = {
       import quotes.reflect.{Ident => TIdent, ValDef => TValDef, _}
       import io.getquill.ast.Implicits._
       val (leftIsOptional, rightIsOptional) = checkInnerTypes(left, right, AllowInnerCompare)
@@ -370,7 +370,7 @@ object ParserHelpers {
 
     // don't change to ValDef or might override the real valdef in qctx.reflect
     object ValDefTerm {
-      def unapply(using Quotes, History, TranspileConfig)(tree: quotes.reflect.Tree): Option[Ast] = {
+      def unapply(using Quotes, History, LiftsAccum, TranspileConfig)(tree: quotes.reflect.Tree): Option[Ast] = {
         import quotes.reflect.{Ident => TIdent, ValDef => TValDef, _}
         tree match {
           case TValDef(name, tpe, Some(t @ PatMatchTerm.SimpleClause(ast))) =>
@@ -423,14 +423,14 @@ object ParserHelpers {
 
     object PatMatchTerm {
       object SimpleClause {
-        def unapply(using Quotes, History, TranspileConfig)(term: quotes.reflect.Term): Option[Ast] =
+        def unapply(using Quotes, History, LiftsAccum, TranspileConfig)(term: quotes.reflect.Term): Option[Ast] =
           PatMatchTerm.unapply(term) match {
             case Some(PatMatch.SimpleClause(ast)) => Some(ast)
             case _                                => None
           }
       }
 
-      def unapply(using Quotes, History, TranspileConfig)(root: quotes.reflect.Term): Option[PatMatch] = {
+      def unapply(using Quotes, History, LiftsAccum, TranspileConfig)(root: quotes.reflect.Term): Option[PatMatch] = {
         import quotes.reflect.{Ident => TIdent, ValDef => TValDef, _}
         root match {
           case Match(expr, List(CaseDef(fields, None, body))) =>
@@ -469,7 +469,7 @@ object ParserHelpers {
      * becomes reduced to:
      * ptups.map { x => fun(x.name, x.age) }
      */
-    protected def betaReduceTupleFields(using Quotes, History, TranspileConfig)(tupleTree: quotes.reflect.Term, fieldsTree: quotes.reflect.Tree, messageExpr: Option[quotes.reflect.Term] = None)(bodyTree: quotes.reflect.Term): Ast = {
+    protected def betaReduceTupleFields(using Quotes, History, LiftsAccum, TranspileConfig)(tupleTree: quotes.reflect.Term, fieldsTree: quotes.reflect.Tree, messageExpr: Option[quotes.reflect.Term] = None)(bodyTree: quotes.reflect.Term): Ast = {
       import quotes.reflect.{Ident => TIdent, ValDef => TValDef, _}
       // TODO Need to verify that this is actually a tuple?
       val tuple = rootParse(tupleTree.asExpr)

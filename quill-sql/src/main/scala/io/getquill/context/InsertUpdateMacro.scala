@@ -47,6 +47,11 @@ import io.getquill.metaprog.Extractors
  * Once we've parsed an insert e.g. `query[Person]insertValue(Person("Joe", "Bloggs"))` we then need to synthesize
  * the insertions that this would represent e.g. `query[Person].insert(_.firstName -> "Joe", _.lastName -> "Bloggs")`
  *
+ * Note: that in practice what users will do most often is query[person].insertValue(lift(p)) where p is a runtime value
+ * this will in turn be expanded output to query[Person].insertValue(_.name -> lift(p.name), _.age -> lift(p.age))
+ * The AST that gets parsed from this woll roughly be Insert(EntityQuery(Person), List(Assignment(Id(p), Prop(Id(p), name), ScalarLift(UUID_A)), Assignemnt(Id(p), Prop(Id(p), age), ScalarLift(UUID_B))))
+ * The corresponding eager lifts to UUID_A and UUID_B will be returned as part of the Quoted container. That will look roughly like Quoted(ast: Insert(...above...), lifts: EagerLift(UUID_A, p.name), EagerLift(UUID_B, p.age))
+ *
  * Each function of field-insertion API basically takes the form
  * {code} (v) => vAssignmentProperty -> assignmentValue (on the AST) {code}
  *
@@ -185,7 +190,7 @@ object InsertUpdateMacro {
           //   quote { query[Person].filter(...lift(runtimeValue)...).update/insertValue(...) }
           // so these lifts need to be extracted.
           case scheme @ '{ ($q: EntityQuery[t]) } =>
-            val ast = parser(q)
+            val (ast, _) = parser(q)
             val (rawLifts, runtimeLifts) = ExtractLifts(q)
             if (!runtimeLifts.isEmpty) {
               // In this particular case:
@@ -319,7 +324,7 @@ object InsertUpdateMacro {
      * Parse the input to of query[Person]insertValue(Person("Joe", "Bloggs")) into CaseClass(firstName="Joe",lastName="Bloggs")
      */
     def parseStaticInsertee(insertee: Expr[_]): CaseClass | AIdent = {
-      val rawAst = parser(insertee)
+      val (rawAst, _) = parser(insertee)
       val ast = BetaReduction(rawAst)
       ast match {
         case cc: CaseClass => cc

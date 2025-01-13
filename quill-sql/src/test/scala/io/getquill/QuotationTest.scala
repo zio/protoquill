@@ -454,3 +454,4 @@ class QuotationTest extends Spec with Inside {
     }
   }
 }
+
