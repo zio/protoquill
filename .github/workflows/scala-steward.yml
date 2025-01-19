@@ -9,7 +9,7 @@ on:
 jobs:
   scala-steward:
     timeout-minutes: 45
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     name: Scala Steward
     steps:
       - name: Scala Steward

@@ -96,10 +96,6 @@ object CalibanExample extends zio.ZIOAppDefault {
         )
       )
     )
-  
-  given JsonEncoder[GraphQLRequest] = GraphQLRequest.zioJsonEncoder
-
-  given JsonDecoder[GraphQLRequest] = GraphQLRequest.zioJsonDecoder
 
   val myApp = for {
     _ <- Dao.resetDatabase()
